@@ -100,22 +100,20 @@ function main(args)
     println("INFO: 10 images were generated at the directory ", outdir)
 
     for epoch = 1:10000
-        shuffle!(dtrn)
-        for i = 1:length(dtrn)
-            x = dtrn[i][1]
+            shuffle!(dtrn)
+            x = dtrn[rem(epoch,600)][1]
             cs = Any[]
             train(w, x, parameters, batch_size, enc_size, dec_size, img_size, z_size, T, initialstate, outdir, cs)
-            if (rem(i, 10)==0)
-              println("Epoch: ", i, ", Loss: ", total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs))
+            if (rem(epoch, 10)==0)
+              println("Epoch: ", epoch, ", Loss: ", total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs))
               for t in 1:T
                   out = min(1,max(0,((cs[t])'+1)/2))
                   png = makegrid(out)
-                  filename = @sprintf("%04d_%02d.png",i,t)
+                  filename = @sprintf("%04d_%02d.png",epoch,t)
                   save(joinpath(outdir,filename), png)
               end
               println("INFO: 10 images were generated at the directory ", outdir)
             end
-        end
     end
 
   #=  if o[:outdir] != nothing
