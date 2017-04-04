@@ -1,4 +1,4 @@
-for p in ("Knet","ArgParse","GZip","Autograd","GZip","Compat", "PyPlot")
+for p in ("Knet","ArgParse","GZip","Autograd","GZip","Compat", "Images", "ImageMagick")
     Pkg.installed(p) == nothing && Pkg.add(p)
 end
 
