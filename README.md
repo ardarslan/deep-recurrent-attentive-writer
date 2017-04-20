@@ -9,4 +9,4 @@ Reimplementation of the paper "DRAW: A Recurrent Neural Network For Image Genera
 
 * Type "julia mnist-generation-with-2-digits.jl --outdir directory_for_image_generation --attention true" to generate MNIST images with 2 digits using attention mechanism.
 
-* Type "julia cluttered-mnist-classification.jl --attention true" to classify MNIST images using attention mechanism.
+* Type "julia cluttered-mnist-classification.jl --attention true" to classify MNIST images using attention mechanism. Cluttered MNIST dataset can be downloaded from https://drive.google.com/drive/folders/0B1bVDHRbBwuuWE83bXFjNU10Ukk
