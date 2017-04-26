@@ -48,7 +48,7 @@ function main(args)
     read_n = 12 #read glimpse grid width/height
     write_n = 12 #write glimpse grid width/height
     z_size = 10 #QSampler output size
-    T = 10 #MNIST generation sequence length
+    T = 32 #MNIST generation sequence length
     batch_size = 100 #training minibatch size
     train_iters = 10000
     learning_rate = 1e-3 #learning rate for optimizer
@@ -57,12 +57,16 @@ function main(args)
     w = initweights(read_attn_mode, atype, A, B, n_hidden, num_colors, read_n, write_n)
     parameters = initparams(w, learning_rate, bt1)
 
-    xtrnraw=loaddata()
+    xtrnraw, xtstraw=loaddata()
     xtrn = convert(Array{Float32}, reshape(xtrnraw ./ 255, A*B*num_colors, div(length(xtrnraw), A*B*num_colors))) #dims:(3072,73200)
+    xtst = convert(Array{Float32}, reshape(xtstraw ./ 255, A*B*num_colors, div(length(xtstraw), A*B*num_colors))) #dims:(3072,73200)
     # seperate it into batches.
 
 
-    #=dtrn = minibatch(xtrn, batch_size)
+    dtrn = minibatch(xtrn, batch_size)
+    dtst = minibatch(xtst, batch_size)
+
+    #=
     println(size((dtrn[224,1])'))
     out = (dtrn[224,1])'
     png = makegrid(out, scale=1.0, shape=(A,B))
@@ -79,7 +83,7 @@ function main(args)
     println("Epoch: ", 0, ", Loss: ", total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n))
 
     for t in 1:T
-        out = min(1,max(0,(cs[t])')) #out = min(1,max(0,((cs[t])'+1)/2))
+        out = min(1,max(0,((cs[t])'+1)/2)) #out = min(1,max(0,((cs[t])'+1)/2))
         png = makegrid(out, scale=1.0, shape=(A,B))
         filename = @sprintf("%05d_%02d.png",0,t)
         save(joinpath(outdir,filename), png)
@@ -106,28 +110,48 @@ function main(args)
 
 
     for epoch = 1:10000
-            index = 1
+            indextrn = 1
             if rem(epoch,732) == 0
-              index = 1
+              indextrn = 1
             else
-              index = rem(epoch, 732)
+              indextrn = rem(epoch, 732)
             end
-            x = dtrn[index]
-            cs = Any[]
-            train(w, x, parameters, batch_size, n_hidden, B*A, z_size, T, initialstate, outdir, cs, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
+
+            indextst = 1
+            if rem(epoch,260) == 0
+              indextst = 1
+            else
+              indextst = rem(epoch, 260)
+            end
+
+            x = dtrn[indextrn]
+            cs1 = Any[]
+            cs2 = Any[]
+            train(w, x, parameters, batch_size, n_hidden, B*A, z_size, T, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
 
             if (rem(epoch, 10)==0)
-              println("Epoch: ", epoch, ", Loss: ", total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n))
+              train_loss = total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
+              x = dtst[indextst]
+              test_loss = total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs2, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
 
 
 
               for t in 1:T
-                  out = min(1,max(0,(cs[t])')) #out = min(1,max(0,((cs[t])'+1)/2))
+                  out = min(1,max(0,((cs1[t])'+1)/2)) #out = min(1,max(0,((cs[t])'+1)/2))
                   png = makegrid(out, scale=1.0, shape=(A,B))
-                  filename = @sprintf("%05d_%02d.png",epoch,t)
+                  filename = @sprintf("trn_%05d_%02d.png",epoch,t)
                   save(joinpath(outdir,filename), png)
               end
-              println("INFO: 10 images were generated at the directory ", outdir)
+
+              for t in 1:T
+                  out = min(1,max(0,((cs2[t])'+1)/2)) #out = min(1,max(0,((cs[t])'+1)/2))
+                  png = makegrid(out, scale=1.0, shape=(A,B))
+                  filename = @sprintf("tst_%05d_%02d.png",epoch,t)
+                  save(joinpath(outdir,filename), png)
+              end
+
+              println("Epoch: ", epoch, ", TrnLoss: ", train_loss, ", TstLoss: ", test_loss)
+              println("INFO: 64 images were generated at the directory ", outdir)
 
 
 
@@ -444,7 +468,7 @@ function total_loss(w, batch_size, n_hidden, img_size, z_size, T, x, initialstat
       mu2=mus[t].*mus[t]
       sigma2=sigmas[t].*sigmas[t]
       logsigma=logsigmas[t]
-      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-T*.5) # each kl term is (1xminibatch)
+      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-z_size*.5) # each kl term is (1xminibatch)
     end
     KL=sum(kl_terms) # this is 1xminibatch, corresponding to summing kl_terms from 1:T ****(add_n in python = sum(x,1) in julia)
     #println("kl_terms_t: ", size(kl_terms[1]))
@@ -520,9 +544,12 @@ end
 function loaddata()
 	info("Loading SVHN...")
 	gzload("train_32x32.mat")
-  vars = matread("train_32x32.mat")["X"]
-  vars = view(vars, :,:,:,58:73257)
-  return vars #dims:(32,32,3,73200)
+  gzload("test_32x32.mat")
+  xtrn = matread("train_32x32.mat")["X"]
+  xtrn = view(xtrn, :,:,:,58:73257)
+  xtst = matread("test_32x32.mat")["X"]
+  xtst = view(xtst, :,:,:,33:26032)
+  return xtrn, xtst #dims:(32,32,3,73200)
 end
 
 function gzload(file; path="$file", url="http://ufldl.stanford.edu/housenumbers/$file")

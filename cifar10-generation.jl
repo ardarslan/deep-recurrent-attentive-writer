@@ -2,7 +2,7 @@ for p in ("Knet","ArgParse","GZip","AutoGrad","GZip","Compat", "Images","ImageMa
     Pkg.installed(p) == nothing && Pkg.add(p)
 end
 
-Pkg.clone("https://github.com/JuliaML/MLDatasets.jl.git")
+#Pkg.clone("https://github.com/JuliaML/MLDatasets.jl.git")
 
 using Knet
 using ArgParse
@@ -47,11 +47,11 @@ function main(args)
     A=32 #image width
     B=32 #image height
     num_colors = 3
-    n_hidden = 800 #number of hidden units / output size in LSTM
-    read_n = 12 #read glimpse grid width/height
-    write_n = 12 #write glimpse grid width/height
+    n_hidden = 400 #number of hidden units / output size in LSTM
+    read_n = 5 #read glimpse grid width/height
+    write_n = 5 #write glimpse grid width/height
     z_size = 10 #QSampler output size
-    T = 10 #MNIST generation sequence length
+    T = 64 #MNIST generation sequence length
     batch_size = 100 #training minibatch size
     train_iters = 10000
     learning_rate = 1e-3 #learning rate for optimizer
@@ -60,11 +60,22 @@ function main(args)
     w = initweights(read_attn_mode, atype, A, B, n_hidden, num_colors, read_n, write_n)
     parameters = initparams(w, learning_rate, bt1)
 
-    xtrnraw=loaddata()
+    xtrnraw, xtstraw=loaddata()
     xtrn = convert(Array{Float32}, reshape(xtrnraw ./ 255, A*B*num_colors, div(length(xtrnraw), A*B*num_colors))) #dims:(3072,73200)
+    xtst = convert(Array{Float32}, reshape(xtstraw ./ 255, A*B*num_colors, div(length(xtstraw), A*B*num_colors))) #dims:(3072,73200)
     # seperate it into batches.
 
     dtrn = minibatch(xtrn, batch_size)
+    dtst = minibatch(xtst, batch_size)
+
+    #=
+    println(size((dtrn[224,1])'))
+    out = (dtrn[224,1])'
+    png = makegrid(out, scale=1.0, shape=(A,B))
+    filename = @sprintf("2420%05d_%02d.png",0,0)
+    save(joinpath(outdir,filename), png)
+    =#
+
 
     x = convert_if_gpu(atype, dtrn[1])  #dims:(100,3072)
     cs = Any[]
@@ -74,14 +85,12 @@ function main(args)
     println("Epoch: ", 0, ", Loss: ", total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n))
 
     for t in 1:T
-        out = min(1,max(0,(cs[t])'))
+        out = min(1,max(0,((cs[t])'+1)/2)) #out = min(1,max(0,((cs[t])'+1)/2))
         png = makegrid(out, scale=1.0, shape=(A,B))
         filename = @sprintf("%05d_%02d.png",0,t)
         save(joinpath(outdir,filename), png)
     end
     println("INFO: 10 images were generated at the directory ", outdir)
-
-
 
 
         #load("data.jld")["data"]
@@ -101,28 +110,47 @@ function main(args)
 
 
     for epoch = 1:10000
-            index = 1
+            indextrn = 1
             if rem(epoch,500) == 0
-              index = 1
+              indextrn = 1
             else
-              index = rem(epoch, 500)
+              indextrn = rem(epoch, 500)
             end
-            x = dtrn[index]
-            cs = Any[]
-            train(w, x, parameters, batch_size, n_hidden, B*A, z_size, T, initialstate, outdir, cs, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
+
+            indextst = 1
+            if rem(epoch,100) == 0
+              indextst = 1
+            else
+              indextst = rem(epoch, 100)
+            end
+
+            x = dtrn[indextrn]
+            cs1 = Any[]
+            cs2 = Any[]
+            train(w, x, parameters, batch_size, n_hidden, B*A, z_size, T, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
 
             if (rem(epoch, 10)==0)
-              println("Epoch: ", epoch, ", Loss: ", total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n))
-
+              train_loss = total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
+              x = dtst[indextst]
+              test_loss = total_loss(w, batch_size, n_hidden, B*A, z_size, T, x, initialstate, outdir, cs2, read_attn_mode, write_attn_mode, A, B, num_colors,atype,read_n,write_n)
 
 
               for t in 1:T
-                  out = min(1,max(0,(cs[t])'))
+                  out = min(1,max(0,((cs1[t])'+1)/2)) #out = min(1,max(0,((cs[t])'+1)/2))
                   png = makegrid(out, scale=1.0, shape=(A,B))
-                  filename = @sprintf("%05d_%02d.png",epoch,t)
+                  filename = @sprintf("trn_%05d_%02d.png",epoch,t)
                   save(joinpath(outdir,filename), png)
               end
-              println("INFO: 10 images were generated at the directory ", outdir)
+
+              for t in 1:T
+                  out = min(1,max(0,((cs2[t])'+1)/2)) #out = min(1,max(0,((cs[t])'+1)/2))
+                  png = makegrid(out, scale=1.0, shape=(A,B))
+                  filename = @sprintf("tst_%05d_%02d.png",epoch,t)
+                  save(joinpath(outdir,filename), png)
+              end
+
+              println("Epoch: ", epoch, ", TrnLoss: ", train_loss, ", TstLoss: ", test_loss)
+              println("INFO: 128 images were generated at the directory ", outdir)
 
 
 
@@ -155,7 +183,7 @@ function initweights(read_attn_mode, atype, A, B, n_hidden, num_colors, read_n, 
     weights = Dict([
     ("read_w", 0.05*randn(n_hidden,5)),
     ("read_b", zeros(1,5)),
-    ("encoder_w", 0.05*randn(2464,n_hidden*4)),  #Use 1376 when enc_size=256
+    ("encoder_w", 0.05*randn(950,n_hidden*4)),  #Use 1376 when enc_size=256
     ("encoder_b", zeros(1, n_hidden*4)),
     ("mu_w", 0.05*randn(n_hidden,10)),
     ("mu_b", zeros(1,10)),
@@ -439,7 +467,7 @@ function total_loss(w, batch_size, n_hidden, img_size, z_size, T, x, initialstat
       mu2=mus[t].*mus[t]
       sigma2=sigmas[t].*sigmas[t]
       logsigma=logsigmas[t]
-      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-T*.5) # each kl term is (1xminibatch)
+      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-z_size*.5) # each kl term is (1xminibatch)
     end
     KL=sum(kl_terms) # this is 1xminibatch, corresponding to summing kl_terms from 1:T ****(add_n in python = sum(x,1) in julia)
     #println("kl_terms_t: ", size(kl_terms[1]))
@@ -515,7 +543,8 @@ end
 function loaddata()
 	info("Loading CIFAR-10...")
 	train_x,_= CIFAR10.traindata()
-  return train_x
+  test_x,_=CIFAR10.testdata()
+  return train_x, test_x
 end
 
 !isinteractive() && !isdefined(Core.Main, :load_only) && main(ARGS)

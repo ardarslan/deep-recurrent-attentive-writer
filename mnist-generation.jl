@@ -49,7 +49,7 @@ function main(args)
     read_n = 5 #read glimpse grid width/height
     write_n = 5 #write glimpse grid width/height
     z_size = 10 #QSampler output size
-    T = 10 #MNIST generation sequence length
+    T = 64 #MNIST generation sequence length
     batch_size = 100 #training minibatch size
     train_iters = 10000
     learning_rate = 1e-3 #learning rate for optimizer
@@ -69,44 +69,74 @@ function main(args)
     ytst = convert(Array{Float32}, sparse(convert(Vector{Int},ytstraw),1:length(ytstraw),one(eltype(ytstraw)),10,length(ytstraw)))
     # seperate it into batches.
 
-    dtrn = minibatch(xtrn, ytrn, batch_size)
-    dtst = minibatch(xtst, ytst, batch_size)
+    dtrn = minibatch(xtrn, ytrn, batch_size, atype)
+    dtst = minibatch(xtst, ytst, batch_size, atype)
 
 
     x = convert_if_gpu(atype, dtrn[1][1])
     cs = Any[]
-    initialstate = [convert_if_gpu(atype, zeros(batch_size,enc_size)), convert_if_gpu(atype, zeros(batch_size,enc_size))]
+    initialstate = [atype(zeros(batch_size,enc_size)), atype(zeros(batch_size,enc_size))]
 
-    println("Epoch: ", 0, ", Loss: ", total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n))
+    train_loss = total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
     for t in 1:T
         out = min(1,max(0,((cs[t])'+1)/2))
         png = makegrid(out)
-        filename = @sprintf("%05d_%02d.png",0,t)
-
+        filename = @sprintf("trn_%05d_%02d.png",0,t)
         save(joinpath(outdir,filename), png)
     end
-    println("INFO: 10 images were generated at the directory ", outdir)
+
+    x = convert_if_gpu(atype, dtst[1][1])
+    cs = Any[]
+    test_loss = total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
+    for t in 1:T
+        out = min(1,max(0,((cs[t])'+1)/2))
+        png = makegrid(out)
+        filename = @sprintf("tst_%05d_%02d.png",0,t)
+        save(joinpath(outdir,filename), png)
+    end
+
+    println("Epoch: ", 0, ", TrnLoss: ", train_loss, ", TstLoss: ", test_loss)
+    println("INFO: 128 images were generated at the directory ", outdir)
 
     for epoch = 1:10000
-            index = 1
+            indexfortrn = 1
             if rem(epoch,600) == 0
-              index = 1
+              indexfortrn = 1
             else
-              index = rem(epoch, 600)
+              indexfortrn = rem(epoch, 600)
             end
-            x = dtrn[index][1]
+            indexfortst = 1
+            if rem(epoch,100) == 0
+              indexfortst = 1
+            else
+              indexfortst = rem(epoch, 100)
+            end
+
+
+            x = dtrn[indexfortrn][1]
             cs = Any[]
             train(w, x, parameters, batch_size, enc_size, dec_size, img_size, z_size, T, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
 
-            if (rem(epoch, 50)==0)
-              println("Epoch: ", epoch, ", Loss: ", total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n))
+            if (rem(epoch, 100)==0)
+              train_loss = total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
               for t in 1:T
                   out = min(1,max(0,((cs[t])'+1)/2))
                   png = makegrid(out)
-                  filename = @sprintf("%05d_%02d.png",epoch,t)
+                  filename = @sprintf("trn_%05d_%02d.png",epoch,t)
                   save(joinpath(outdir,filename), png)
               end
-              println("INFO: 10 images were generated at the directory ", outdir)
+              cs = Any[]
+              x = dtst[indexfortst][1]
+              test_loss = total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, initialstate, outdir, cs, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
+
+              for t in 1:T
+                  out = min(1,max(0,((cs[t])'+1)/2))
+                  png = makegrid(out)
+                  filename = @sprintf("tst_%05d_%02d.png",epoch,t)
+                  save(joinpath(outdir,filename), png)
+              end
+              println("Epoch: ", epoch, ", TrnLoss: ", train_loss, ", TstLoss: ", test_loss)
+              println("INFO: 128 images were generated at the directory ", outdir)
             end
     end
 end
@@ -159,17 +189,13 @@ function initparams(w,lr,bt1)
    return result
 end
 
-function minibatch(X, Y, bs) #pyplot
-    #takes raw input (X) and gold labels (Y)
-    #returns list of minibatches (x, y)
-    X = X'
-    Y = Y'
-    data = Any[]
-    for i=1:bs:size(X, 1)
-	     bl = i + bs - 1 <= size(X, 1) ? i + bs - 1 : size(X, 1)
-	     push!(data, (X[i:bl, :], Y[i:bl, :]))
-    end
-    return data
+function minibatch(X, Y, bs, atype)
+	data = Any[]
+	for i=1:bs:size(X, 2)
+		bl = i + bs - 1 <= size(X, 2) ? i + bs - 1 : size(X, 2)
+		push!(data, (convert_if_gpu(atype, (X[:, i:bl])'), convert_if_gpu(atype, (Y[:, i:bl])')))
+	end
+	return data
 end
 
 function linear(x, scope, weights) ##########todo
@@ -192,7 +218,7 @@ end
 
 
 function filterbank(gx, gy, sigma2, delta, N, A, B, atype)
-    grid_i = convert_if_gpu(atype, zeros(1, 5))    #grid_i = tf.reshape(tf.cast(tf.range(N), tf.Float32), [1, -1])
+    grid_i = atype(zeros(1, N))    #grid_i = tf.reshape(tf.cast(tf.range(N), tf.Float32), [1, -1])
     for i in 1:N
       grid_i[1,i] = i-1
     end
@@ -211,8 +237,8 @@ function filterbank(gx, gy, sigma2, delta, N, A, B, atype)
       b[1,1,i]=i-1
     end
 
-    mu_x = reshape(mu_x, 100, 5, 1)
-    mu_y = reshape(mu_y, 100, 5, 1)
+    mu_x = reshape(mu_x, 100, N, 1)
+    mu_y = reshape(mu_y, 100, N, 1)
 
     sigma2 = reshape(sigma2, 100, 1, 1) # sigma2 = tf.reshape(sigma2, [-1, 1, 1])
 
@@ -231,7 +257,6 @@ function filterbank(gx, gy, sigma2, delta, N, A, B, atype)
 
     Fx = convert_if_gpu(atype, Fx)
     Fy = convert_if_gpu(atype, Fy)
-
 return Fx,Fy
 end
 
@@ -262,44 +287,35 @@ function read_attn(x, x_hat, h_dec_prev, read_n, weights, A, B, atype)
 end
 
 function filter_img(x,Fx,Fy,gamma,N,A,B,atype)
-        Fxt=permutedims(Fx, [1,3,2]) #dims(100,28,5)
-        img=reshape(x,100,28,28)
-        Fxt=convert_if_gpu(Array{Float32}, Fxt)
-        img=convert_if_gpu(Array{Float32}, img)
-        Fy=convert_if_gpu(Array{Float32}, Fy)
-        FxtArray = Any[]
-        imgArray = Any[]
-        FyArray = Any[]
-        for i in 1:100
-          push!(FxtArray, convert_if_gpu(atype, Fxt[i,:,:]))
-          push!(imgArray, convert_if_gpu(atype, img[i,:,:]))
-          push!(FyArray, convert_if_gpu(atype, Fy[i,:,:]))
-        end
+        Fxt=permutedims(Fx, [1,3,2]) #dims(batch_size,A,N)
+        img=reshape(x,100,B,A) #dims(batch_size,B,A)
+        temp = batch_matmul(img,Fxt) #dims(batch_size,B,N)
+        glimpse = batch_matmul(Fy,temp) #dims(batch_size,N,N)
+        glimpse=reshape(glimpse,100,N*N)
+        result = glimpse.*reshape(gamma,100,1)
+return result
+end
 
+function batch_matmul(a,b)
+  ax = size(a)[2]
+  ay = size(a)[3]
+  bx = size(b)[2]
+  by = size(b)[3]
+  batch_size = size(a)[1]
 
-        temp1 = imgArray[1]*FxtArray[1]
-        for i in 2:100
-          temp = imgArray[i]*FxtArray[i]
-          temp1 = vcat(temp1, temp)
-        end
-        temp = reshape(temp1, 28, 100, 5)
-        temp = permutedims(temp, [2, 1, 3])
-
-        temp = convert_if_gpu(Array{Float32}, temp)
-        tempArray = Any[]
-        for i in 1:100
-          push!(tempArray, convert_if_gpu(atype, temp[i,:,:]))
-        end
-
-        glimpse1 = FyArray[1]*tempArray[1]
-        for i in 2:100
-          foo = FyArray[i]*tempArray[i]
-          glimpse1 = vcat(glimpse1, foo)
-        end
-        glimpse = reshape(glimpse1, 5, 100, 5)
-        glimpse = permutedims(glimpse, [2,1,3])
-        glimpse=reshape(glimpse,100,25)
-return glimpse.*reshape(gamma,100,1)
+  a1 = reshape(permutedims(a,[2,3,1])[(1-1)*ax*ay+1:1*ax*ay],ax,ay)
+  b1 = reshape(permutedims(b,[2,3,1])[(1-1)*bx*by+1:1*bx*by],bx,by)
+  temp = a1*b1
+  pa = permutedims(a,[2,3,1])
+  pb = permutedims(b,[2,3,1])
+  for i in 2:batch_size
+    a1 = reshape(pa[(i-1)*ax*ay+1:i*ax*ay],ax,ay)
+    b1 = reshape(pb[(i-1)*bx*by+1:i*bx*by],bx,by)
+    tempi = a1*b1
+    temp = vcat(temp, tempi)
+  end
+  temp = reshape(temp,ax,batch_size,by)
+  temp = permutedims(temp, [2,1,3])
 end
 
 function encode(weights, state, input)
@@ -387,15 +403,15 @@ function total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, i
   logsigmas = Any[]
   sigmas = Any[]
 
-  h_dec_prev = convert_if_gpu(atype, zeros(batch_size, dec_size))
+  h_dec_prev = atype(zeros(batch_size, dec_size))
   enc_state = initialstate
   dec_state = initialstate
-  noise = 0.05*convert_if_gpu(atype, randn(batch_size, z_size))
+  noise = 0.05*atype(randn(batch_size, z_size))
   x = convert_if_gpu(atype, x)
   for t in 1:T
     c_prev = 0
     if (t==1)
-        c_prev = convert_if_gpu(atype, zeros(batch_size, img_size))
+        c_prev = atype(zeros(batch_size, img_size))
       else
         c_prev = cs[t-1]
       end
@@ -419,7 +435,7 @@ function total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, i
       mu2=mus[t].*mus[t]
       sigma2=sigmas[t].*sigmas[t]
       logsigma=logsigmas[t]
-      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-T*.5)
+      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-z_size*.5)
     end
     KL=sum(kl_terms)
     Lz=sum(KL)/length(KL)

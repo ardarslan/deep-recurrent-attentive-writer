@@ -49,7 +49,7 @@ function main(args)
     read_n = 5 #read glimpse grid width/height
     write_n = 5 #write glimpse grid width/height
     z_size = 10 #QSampler output size
-    T = 10 #MNIST generation sequence length
+    T = 64 #MNIST generation sequence length
     batch_size = 100 #training minibatch size
     train_iters = 10000
     learning_rate = 1e-3 #learning rate for optimizer
@@ -92,27 +92,45 @@ function main(args)
     println("INFO: 10 images were generated at the directory ", outdir)
 
     for epoch = 1:10000
-            index = 1
-            if rem(epoch,600) == 0
-              index = 1
-            else
-              index = rem(epoch, 600)
-            end
-            x1 = dtrn[index][1]
-            x2 = dtrn[600-index+1][1]
+      indexfortrn = 1
+      if rem(epoch,600) == 0
+        indexfortrn = 1
+      else
+        indexfortrn = rem(epoch, 600)
+      end
+      indexfortst = 1
+      if rem(epoch,100) == 0
+        indexfortst = 1
+      else
+        indexfortst = rem(epoch, 100)
+      end
+
+            x1 = dtrn[indexfortrn][1]
+            x2 = dtrn[600-indexfortrn+1][1]
+            x3 = dtst[indexfortst][1]
+            x4 = dtst[100-indexfortst+1][1]
             cs1 = Any[]
             cs2 = Any[]
+            cs3 = Any[]
+            cs4 = Any[]
             train(w, x1, parameters, batch_size, enc_size, dec_size, img_size, z_size, T, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
 
-            if (rem(epoch, 10)==0)
-              println("Epoch: ", epoch, ", Loss: ", total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x1, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n))
+            if (rem(epoch, 100)==0)
+              train_loss = total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x1, initialstate, outdir, cs1, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
               total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x2, initialstate, outdir, cs2, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
+
+              test_loss = total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x3, initialstate, outdir, cs3, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
+              total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x4, initialstate, outdir, cs4, read_attn_mode, write_attn_mode, atype, A, B, read_n, write_n)
 
               random_numbers1 = Any[]
               random_numbers2 = Any[]
+              random_numbers3 = Any[]
+              random_numbers4 = Any[]
               for i in 1:100
                 push!(random_numbers1, [Int(round(rand()*28)), Int(round(rand()*28))])
                 push!(random_numbers2, [Int(round(rand()*28)), Int(round(rand()*28))])
+                push!(random_numbers3, [Int(round(rand()*28)), Int(round(rand()*28))])
+                push!(random_numbers4, [Int(round(rand()*28)), Int(round(rand()*28))])
               end
 
               for t in 1:T
@@ -120,13 +138,23 @@ function main(args)
                   png1 = makegrid(out1, random_numbers1)
                   out2 = min(1,max(0,((cs2[t])'+1)/2))
                   png2 = makegrid(out2, random_numbers2)
-
                   png = min(1, png1+png2)
-
-                  filename = @sprintf("%05d_%02d.png",epoch,t)
+                  filename = @sprintf("trn_%05d_%02d.png",epoch,t)
                   save(joinpath(outdir,filename), png)
               end
-              println("INFO: 10 images were generated at the directory ", outdir)
+
+              for t in 1:T
+                  out1 = min(1,max(0,((cs3[t])'+1)/2))
+                  png1 = makegrid(out1, random_numbers3)
+                  out2 = min(1,max(0,((cs4[t])'+1)/2))
+                  png2 = makegrid(out2, random_numbers4)
+                  png = min(1, png1+png2)
+                  filename = @sprintf("tst_%05d_%02d.png",epoch,t)
+                  save(joinpath(outdir,filename), png)
+              end
+
+              println("Epoch: ", epoch, ", TrnLoss: ", train_loss, ", TstLoss: ", test_loss)
+              println("INFO: 128 images were generated at the directory ", outdir)
             end
     end
 end
@@ -438,7 +466,7 @@ function total_loss(w, batch_size, enc_size, dec_size, img_size, z_size, T, x, i
       mu2=mus[t].*mus[t]
       sigma2=sigmas[t].*sigmas[t]
       logsigma=logsigmas[t]
-      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-T*.5)
+      push!(kl_terms, 0.5*sum((mu2+sigma2-2*logsigma),2)-z_size*.5)
     end
     KL=sum(kl_terms)
     Lz=sum(KL)/length(KL)
