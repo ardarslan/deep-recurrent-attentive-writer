@@ -2,7 +2,7 @@ for p in ("Knet","ArgParse","GZip","AutoGrad","GZip","Compat", "Images","ImageMa
     Pkg.installed(p) == nothing && Pkg.add(p)
 end
 
-#Pkg.clone("https://github.com/JuliaML/MLDatasets.jl.git")
+Pkg.clone("https://github.com/JuliaML/MLDatasets.jl.git")
 
 using Knet
 using ArgParse
@@ -61,21 +61,12 @@ function main(args)
     parameters = initparams(w, learning_rate, bt1)
 
     xtrnraw, xtstraw=loaddata()
-    xtrn = convert(Array{Float32}, reshape(xtrnraw ./ 255, A*B*num_colors, div(length(xtrnraw), A*B*num_colors))) #dims:(3072,73200)
-    xtst = convert(Array{Float32}, reshape(xtstraw ./ 255, A*B*num_colors, div(length(xtstraw), A*B*num_colors))) #dims:(3072,73200)
+    xtrn = convert(Array{Float32}, reshape(xtrnraw, A*B*num_colors, div(length(xtrnraw), A*B*num_colors))) #dims:(3072,73200)
+    xtst = convert(Array{Float32}, reshape(xtstraw, A*B*num_colors, div(length(xtstraw), A*B*num_colors))) #dims:(3072,73200)
     # seperate it into batches.
 
     dtrn = minibatch(xtrn, batch_size)
     dtst = minibatch(xtst, batch_size)
-
-    #=
-    println(size((dtrn[224,1])'))
-    out = (dtrn[224,1])'
-    png = makegrid(out, scale=1.0, shape=(A,B))
-    filename = @sprintf("2420%05d_%02d.png",0,0)
-    save(joinpath(outdir,filename), png)
-    =#
-
 
     x = convert_if_gpu(atype, dtrn[1])  #dims:(100,3072)
     cs = Any[]
@@ -91,23 +82,6 @@ function main(args)
         save(joinpath(outdir,filename), png)
     end
     println("INFO: 10 images were generated at the directory ", outdir)
-
-
-        #load("data.jld")["data"]
-
-        #firstimage = Images.colorview(RGB, y[:,:,:,1])
-        #outdir = "/ec2-user/svhngenerations"
-        #filename = string("epoch", epoch, "instance1.png")
-        #save(joinpath(outdir,filename), firstImage)
-
-        #makegrid(out,0,scale=1.0, shape=(A,B))
-
-        #filename = @sprintf("%05d_%02d.png",0,t)
-
-        #save(joinpath(outdir,filename), png)
-
-    #println("INFO: 10 images were generated at the directory ", outdir)
-
 
     for epoch = 1:10000
             indextrn = 1
@@ -519,8 +493,6 @@ function makegrid(y; gridsize=[10,10], scale=2.0, shape=(32,32))
     gridx, gridy = gridsize
     out = zeros(3,331,331)
     out = Images.colorview(RGB, out)
-    #for k = 1:gridx+1; out[(k-1)*(shp[1]+1)+1,:] = 1.0; end
-    #for k = 1:gridy+1; out[:,(k-1)*(shp[2]+1)+1] = 1.0; end
 
     x0 = y0 = 2
     for k = 1:length(y)
