@@ -1,4 +1,4 @@
-# Deep Recurrent Attentive Writer(DRAW)
+# Deep Recurrent Attentive Writer (DRAW)
 Reimplementation of the paper "DRAW: A Recurrent Neural Network For Image Generation" in Julia using Knet.jl
 
 Original paper: https://arxiv.org/pdf/1502.04623.pdf
